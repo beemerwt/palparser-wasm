@@ -626,21 +626,13 @@ impl From<Quat> for JsValue {
 
 impl Quat {
     fn read<R: Read + Seek>(reader: &mut Context<R>) -> TResult<Self> {
-        if reader.header.as_ref().unwrap().large_world_coordinates() {
-            Ok(Self {
-                x: reader.read_f64::<LE>()?,
-                y: reader.read_f64::<LE>()?,
-                z: reader.read_f64::<LE>()?,
-                w: reader.read_f64::<LE>()?,
-            })
-        } else {
-            Ok(Self {
-                x: reader.read_f32::<LE>()? as f64,
-                y: reader.read_f32::<LE>()? as f64,
-                z: reader.read_f32::<LE>()? as f64,
-                w: reader.read_f32::<LE>()? as f64,
-            })
-        }
+        // UnrealEngine 5, so it's f64.
+        Ok(Self {
+            x: reader.read_f64::<LE>()?,
+            y: reader.read_f64::<LE>()?,
+            z: reader.read_f64::<LE>()?,
+            w: reader.read_f64::<LE>()?,
+        })
     }
 }
 #[derive(Debug, Clone, PartialEq)]
@@ -662,19 +654,12 @@ impl From<Rotator> for JsValue {
 
 impl Rotator {
     fn read<R: Read + Seek>(reader: &mut Context<R>) -> TResult<Self> {
-        if reader.header.as_ref().unwrap().large_world_coordinates() {
-            Ok(Self {
-                x: reader.read_f64::<LE>()?,
-                y: reader.read_f64::<LE>()?,
-                z: reader.read_f64::<LE>()?,
-            })
-        } else {
-            Ok(Self {
-                x: reader.read_f32::<LE>()? as f64,
-                y: reader.read_f32::<LE>()? as f64,
-                z: reader.read_f32::<LE>()? as f64,
-            })
-        }
+        // UnrealEngine 5, so it's f64.
+        Ok(Self {
+            x: reader.read_f64::<LE>()?,
+            y: reader.read_f64::<LE>()?,
+            z: reader.read_f64::<LE>()?,
+        })
     }
 }
 #[derive(Debug, Clone, PartialEq)]
@@ -725,19 +710,12 @@ impl From<Vector> for JsValue {
 
 impl Vector {
     fn read<R: Read + Seek>(reader: &mut Context<R>) -> TResult<Self> {
-        if reader.header.as_ref().unwrap().large_world_coordinates() {
-            Ok(Self {
-                x: reader.read_f64::<LE>()?,
-                y: reader.read_f64::<LE>()?,
-                z: reader.read_f64::<LE>()?,
-            })
-        } else {
-            Ok(Self {
-                x: reader.read_f32::<LE>()? as f64,
-                y: reader.read_f32::<LE>()? as f64,
-                z: reader.read_f32::<LE>()? as f64,
-            })
-        }
+        // UnrealEngine 5, so it's f64.
+        Ok(Self {
+            x: reader.read_f64::<LE>()?,
+            y: reader.read_f64::<LE>()?,
+            z: reader.read_f64::<LE>()?,
+        })
     }
 }
 #[derive(Debug, Clone, PartialEq)]
@@ -1653,10 +1631,19 @@ impl Property {
                 id: read_optional_uuid(reader)?,
                 value: reader.read_i32::<LE>()?,
             }),
-            PropertyType::Int64Property => Ok(Property::Int64 {
-                id: read_optional_uuid(reader)?,
-                value: reader.read_i64::<LE>()?,
-            }),
+            PropertyType::Int64Property => {
+                let id = read_optional_uuid(reader)?;
+                let mut value = reader.read_i64::<LE>()?;
+                
+                // Very specific special case, if IntProperty64
+                // is "None" then it's actually 0.
+                if value == 0x050000004E6F6E65 {
+                    log("Value was NONE on Int64Property!!!");
+                    value = 0;
+                }
+
+                Ok(Property::Int64 { id, value })
+            },
             PropertyType::UInt8Property => Ok(Property::UInt8 {
                 id: read_optional_uuid(reader)?,
                 value: reader.read_u8()?,
@@ -1861,11 +1848,7 @@ pub struct Header {
     pub custom_format_version: u32,
     pub custom_format: Vec<CustomFormatData>,
 }
-impl Header {
-    fn large_world_coordinates(&self) -> bool {
-        self.engine_version_major >= 5
-    }
-}
+
 impl<R: Read + Seek> Readable<R> for Header {
     fn read(reader: &mut Context<R>) -> TResult<Self> {
         let magic = reader.read_u32::<LE>()?;

@@ -3,6 +3,8 @@ name = "palparser-wasm"
 version = "0.1.3"
 authors = ["Brandon Woolworth <beemerwt@gmail.com>"]
 edition = "2018"
+readme = false
+repository = "https://github.com/beemerwt/palparser-wasm"
 
 [lib]
 crate-type = ["cdylib", "rlib"]

@@ -148,8 +148,6 @@ fn read_property<R: Read + Seek>(reader: &mut Context<R>, progress: &Option<Func
     let name = read_string(reader)?;
     report_progress(reader, progress);
 
-    log(name.as_str());
-
     if name == "None" {
         Ok(None)
     } else {
@@ -1632,17 +1630,10 @@ impl Property {
                 value: reader.read_i32::<LE>()?,
             }),
             PropertyType::Int64Property => {
-                let id = read_optional_uuid(reader)?;
-                let mut value = reader.read_i64::<LE>()?;
-                
-                // Very specific special case, if IntProperty64
-                // is "None" then it's actually 0.
-                if value == 0x050000004E6F6E65 {
-                    log("Value was NONE on Int64Property!!!");
-                    value = 0;
-                }
-
-                Ok(Property::Int64 { id, value })
+                Ok(Property::Int64 {
+                    id: read_optional_uuid(reader)?,
+                    value: reader.read_i64::<LE>()?
+                })
             },
             PropertyType::UInt8Property => Ok(Property::UInt8 {
                 id: read_optional_uuid(reader)?,
@@ -1791,7 +1782,6 @@ impl Property {
                 })
             }
             PropertyType::StructProperty => {
-                log("Property was a struct");
                 let struct_type = StructType::read(reader)?;
                 let struct_id = uuid::Uuid::read(reader)?;
                 let id = read_optional_uuid(reader)?;
@@ -1902,7 +1892,7 @@ impl Root {
 fn vec_to_array<T>(vec: Vec<T>) -> Array
 where T: Into<JsValue>
 {
-    let array = Array::new_with_length(vec.len() as u32);
+    let array = Array::new();
     for i in vec {
         array.push(&i.into());
     }
@@ -1913,7 +1903,7 @@ where T: Into<JsValue>
 fn tuple_vec_to_array<T>(vec: Vec<(T, T)>) -> Array
 where T: Into<JsValue>
 {
-    let array = Array::new_with_length(vec.len() as u32);
+    let array = Array::new();
     for (a, b) in vec {
         let tup = Array::new_with_length(2);
         tup.set(0, a.into());
@@ -1994,10 +1984,10 @@ extern {
 // meaning it split each pal into it's own respective byte data, but they are not deserialized yet
 // this can take one element and deserialize it...
 #[wasm_bindgen(js_name="palFromRaw")]
-pub fn pal_from_raw(buffer: &Uint8Array, types: Option<Map>, progress: Option<Function>) -> Result<JsValue, JsValue> {
-    let buf: Vec<u8> = buffer.to_vec();
-    let file = Cursor::new(&buf);
-    let mut reader = SeekReader::new(file);
+pub fn pal_from_raw(data: &Uint8Array, types: Option<Map>, progress: Option<Function>) -> Result<JsValue, JsValue> {
+    let file = data.to_vec();
+    let cursor = Cursor::new(&file);
+    let mut reader = SeekReader::new(cursor);
 
     let mut type_map = Types::new();
     if types.is_some() {
@@ -2018,12 +2008,13 @@ pub fn pal_from_raw(buffer: &Uint8Array, types: Option<Map>, progress: Option<Fu
 }
 
 #[wasm_bindgen]
-pub fn deserialize(buffer: &Uint8Array, types: Option<Map>, progress: Option<Function>) -> Result<Save, JsValue> {
+pub fn deserialize(buffer: &Uint8Array, types: Option<Map>, progress: Option<Function>) -> Result<JsValue, JsValue> {
     utils::set_panic_hook();
 
     let mut type_map = Types::new();
     if types.is_some() {
         types.unwrap().for_each(&mut |value, key| {
+            log(("adding type ".to_owned() + &key.as_string().unwrap()).as_str());
             type_map.add(key.as_string().unwrap(), StructType::Struct(value.as_string()));
         });
     }
@@ -2032,12 +2023,11 @@ pub fn deserialize(buffer: &Uint8Array, types: Option<Map>, progress: Option<Fun
     let mut file = Cursor::new(&buf);
 
     match Save::read_with_types(&mut file, &type_map, &progress) {
-        Ok(save) => Ok(save),
+        Ok(save) => Ok(map_to_object(&save.root.world_save_data)),
         Err(err) => {
             error("Read save failed");
-            let s = err.to_string();
-            error(&s);
-            panic!("{}", s);
+            error(&err.to_string());
+            Err(err.error.into())
         }
-    }
+    }    
 }
